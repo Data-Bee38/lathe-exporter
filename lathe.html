@@ -1,0 +1,214 @@
+<!doctype html>
+<html>
+  <head>
+    <title>City Builder</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r124/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.126.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.126.0/examples/js/exporters/STLExporter.js"></script>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: black;
+        overflow: hidden;
+        height: 100%;
+      }
+      canvas {
+        position: absolute; 
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+      h1{
+        margin:0;
+        padding:0;
+      }
+      #ui {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        z-index: 100;
+        width:150px;
+        background: rgba(255, 255, 255, 0.2);
+        padding: 10px;
+        border-radius: 8px;
+      }
+      #ui input, #ui button, #ui textarea {
+        margin: 5px;
+        display: block;
+        width:90%;
+      }
+      #ui textarea {
+        height: 100px;
+      }
+      #ui #segmentsInput{
+        display: inline-block;
+        width:60px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <h1>Lathe Exporter</h1>
+      <input id="xInput" type="number" placeholder="X value">
+      <input id="yInput" type="number" placeholder="Y value">
+      <button id="addPointButton">Add Point</button>
+      <textarea id="pointsTextarea" readonly placeholder="Added Points"></textarea>
+      &nbsp;Segments<input id="segmentsInput" type="number" placeholder="Segments (e.g., 12)" value="12">
+      <button id="generateButton">Generate Lathe</button>
+      <button id="exportButton">Export as STL</button>
+     
+    </div>
+    <canvas></canvas>
+    <script>
+      // Setting up renderer, scene, camera, and controls
+      let renderer = new THREE.WebGLRenderer({ alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearColor(0xd8e7ff, 0);
+      document.body.appendChild(renderer.domElement);
+      let scene = new THREE.Scene();
+      let camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+      let controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.25;
+      controls.enableZoom = true;
+      controls.maxPolarAngle = Math.PI / 2.1;
+      window.addEventListener("resize", function () {
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      });
+      let grid = new THREE.GridHelper(20, 20);
+      grid.material.color = new THREE.Color('white');
+      scene.add(grid);
+      let light1 = new THREE.DirectionalLight(0xefefff, 1.5);
+      light1.position.set(1, 1, 1).normalize();
+      scene.add(light1);
+      let light2 = new THREE.DirectionalLight(0xffefef, 1.5);
+      light2.position.set(-1, -1, -1).normalize();
+      scene.add(light2);
+      camera.position.set(0, 20, 30);
+
+      // Material for lathe geometry
+      let basic = new THREE.MeshPhongMaterial({
+        color: new THREE.Color("#333"),
+        emissive: new THREE.Color("#333"),
+        specular: new THREE.Color("black"),
+        shininess: 10,
+        shading: THREE.FlatShading,
+        transparent: 1,
+        opacity: 1,
+        vertexColors: THREE.FaceColors,
+        side: THREE.DoubleSide
+      });
+      let lathe = null; // No initial lathe
+
+      // Array to store user-generated points
+      let userData = [];
+
+      function createLathe(data, segments) {
+        // Remove previous lathe if it exists
+        if (lathe) {
+          scene.remove(lathe);
+          lathe.geometry.dispose();
+          lathe.material.dispose();
+          lathe = null;
+        }
+
+        // Create geometry with user-defined points and segments
+        let points = data.map(([x, y]) => new THREE.Vector2(x, y));
+        let geo = new THREE.LatheGeometry(points, segments);
+        lathe = new THREE.Mesh(geo, basic);
+        lathe.scale.set(0.05, 0.05, 0.05);
+        scene.add(lathe);
+      }
+
+      // Update textarea to show the added points
+      function updateTextarea() {
+        const textarea = document.getElementById('pointsTextarea');
+        textarea.value = userData.map(point => `(${point[0]}, ${point[1]})`).join('\n');
+      }
+
+      // Add point to userData
+      document.getElementById('addPointButton').addEventListener('click', () => {
+        let x = parseFloat(document.getElementById('xInput').value);
+        let y = parseFloat(document.getElementById('yInput').value);
+
+        if (!isNaN(x) && !isNaN(y)) {
+          userData.push([x, y]);
+          console.log("Added point:", [x, y]);
+          updateTextarea(); // Update the textarea with new points
+          document.getElementById('xInput').value = ''; // Clear input
+          document.getElementById('yInput').value = ''; // Clear input
+        } else {
+          alert("Please enter valid numbers for X and Y.");
+        }
+      });
+
+      // Generate lathe based on user input
+      document.getElementById('generateButton').addEventListener('click', () => {
+        let segments = parseInt(document.getElementById('segmentsInput').value);
+        if (userData.length < 2) {
+          alert("At least two points are required to generate a lathe.");
+        } else if (isNaN(segments) || segments < 3) {
+          alert("Please enter a valid number of segments (minimum 3).");
+        } else {
+          createLathe(userData, segments);
+        }
+      });
+
+      // Export lathe as STL
+      document.getElementById('exportButton').addEventListener('click', () => {
+        if (!lathe) {
+          alert("No lathe geometry to export. Please generate the lathe first.");
+          return;
+        }
+
+        // Convert the geometry to BufferGeometry if necessary
+        const bufferGeometry = lathe.geometry.isBufferGeometry 
+          ? lathe.geometry 
+          : new THREE.BufferGeometry().fromGeometry(lathe.geometry);
+
+        // Create a temporary mesh with BufferGeometry
+        const tempMesh = new THREE.Mesh(bufferGeometry, lathe.material);
+
+        // Rotate the model for Blender's Z-up coordinate system
+        tempMesh.rotation.x = Math.PI / 2; // Rotate 90 degrees around the X-axis
+
+        // Update the transformation matrix
+        tempMesh.updateMatrixWorld(true);
+
+        const exporter = new THREE.STLExporter();
+        const stlData = exporter.parse(tempMesh); // Export the mesh with the applied transformations
+
+        // Save the STL file
+        const blob = new Blob([stlData], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'lathe_geometry.stl';
+        link.click();
+
+        URL.revokeObjectURL(url); // Free up memory
+      });
+
+
+
+
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
+    </script>
+  </body>
+</html>
